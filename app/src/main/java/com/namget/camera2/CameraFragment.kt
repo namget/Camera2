@@ -28,8 +28,68 @@ class CameraFragment : Fragment() {
     private var cameraDevice: CameraDevice? = null
     private lateinit var previewSize: Size
     private var imageReader: ImageReader? = null
-    
+    private var state = STATE_PREVIEW
     private val cameraOpenCloseLock = Semaphore(1)
+    private lateinit var previewRequest: CaptureRequest
+    private lateinit var previewRequestBuilder: CaptureRequest.Builder
+
+    /**
+     * Max preview width that is guaranteed by Camera2 API
+     */
+    private val MAX_PREVIEW_WIDTH = 1920
+
+    /**
+     * Max preview height that is guaranteed by Camera2 API
+     */
+    private val MAX_PREVIEW_HEIGHT = 1080
+
+    /**
+     * Camera state: Showing camera preview.
+     */
+    private val STATE_PREVIEW = 0
+
+    /**
+     * Camera state: Waiting for the focus to be locked.
+     */
+    private val STATE_WAITING_LOCK = 1
+
+    /**
+     * Camera state: Waiting for the exposure to be precapture state.
+     */
+    private val STATE_WAITING_PRECAPTURE = 2
+
+    /**
+     * Camera state: Waiting for the exposure state to be something other than precapture.
+     */
+    private val STATE_WAITING_NON_PRECAPTURE = 3
+
+    /**
+     * Camera state: Picture was taken.
+     */
+    private val STATE_PICTURE_TAKEN = 4
+
+
+
+    private val stateCallback = object : CameraDevice.StateCallback() {
+
+        override fun onOpened(cameraDevice: CameraDevice) {
+            cameraOpenCloseLock.release()
+            this@CameraFragment.cameraDevice = cameraDevice
+            createCameraPreviewSession()
+        }
+
+        override fun onDisconnected(cameraDevice: CameraDevice) {
+            cameraOpenCloseLock.release()
+            cameraDevice.close()
+            this@CameraFragment.cameraDevice = null
+        }
+
+        override fun onError(cameraDevice: CameraDevice, error: Int) {
+            onDisconnected(cameraDevice)
+            this@CameraFragment.activity?.finish()
+        }
+
+    }
 
 
 
@@ -128,6 +188,62 @@ class CameraFragment : Fragment() {
             matrix.postRotate(180f, centerX, centerY)
         }
         textureView.setTransform(matrix)
+    }
+
+    /**
+     * Creates a new [CameraCaptureSession] for camera preview.
+     */
+    private fun createCameraPreviewSession() {
+        try {
+            val texture = textureView.surfaceTexture
+
+            // We configure the size of default buffer to be the size of camera preview we want.
+            texture.setDefaultBufferSize(previewSize.width, previewSize.height)
+
+            // This is the output Surface we need to start preview.
+            val surface = Surface(texture)
+
+            // We set up a CaptureRequest.Builder with the output Surface.
+            previewRequestBuilder = cameraDevice!!.createCaptureRequest(
+                CameraDevice.TEMPLATE_PREVIEW
+            )
+            previewRequestBuilder.addTarget(surface)
+
+            // Here, we create a CameraCaptureSession for camera preview.
+            cameraDevice?.createCaptureSession(Arrays.asList(surface, imageReader?.surface),
+                object : CameraCaptureSession.StateCallback() {
+
+                    override fun onConfigured(cameraCaptureSession: CameraCaptureSession) {
+                        // The camera is already closed
+                        if (cameraDevice == null) return
+
+                        // When the session is ready, we start displaying the preview.
+                        captureSession = cameraCaptureSession
+                        try {
+                            // Auto focus should be continuous for camera preview.
+                            previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
+                                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                            // Flash is automatically enabled when necessary.
+                            setAutoFlash(previewRequestBuilder)
+
+                            // Finally, we start displaying the camera preview.
+                            previewRequest = previewRequestBuilder.build()
+                            captureSession?.setRepeatingRequest(previewRequest,
+                                captureCallback, backgroundHandler)
+                        } catch (e: CameraAccessException) {
+                            Log.e(TAG, e.toString())
+                        }
+
+                    }
+
+                    override fun onConfigureFailed(session: CameraCaptureSession) {
+                        activity.showToast("Failed")
+                    }
+                }, null)
+        } catch (e: CameraAccessException) {
+            Log.e(TAG, e.toString())
+        }
+
     }
 
 
