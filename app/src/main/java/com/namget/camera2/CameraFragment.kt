@@ -5,7 +5,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.graphics.*
+import android.graphics.Matrix
+import android.graphics.RectF
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
 import android.hardware.camera2.CameraCharacteristics.SENSOR_ORIENTATION
@@ -18,7 +20,6 @@ import android.util.Log
 import android.util.Size
 import android.util.SparseIntArray
 import android.view.*
-import android.widget.Button
 import android.widget.ImageButton
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.checkSelfPermission
@@ -28,12 +29,10 @@ import com.gun0912.tedpermission.PermissionListener
 import com.namget.camera2.util.PermissionUtil
 import com.namget.camera2.util.e
 import com.namget.camera2.util.showToast
-import kotlinx.android.synthetic.main.fragment_video.*
 import java.io.IOException
 import java.util.*
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
-import java.util.zip.Inflater
 
 class CameraFragment : Fragment() {
 
@@ -232,7 +231,6 @@ class CameraFragment : Fragment() {
             })
             return
         }
-
         val cameraActivity = activity
         if (cameraActivity == null || cameraActivity.isFinishing) return
 
@@ -266,9 +264,11 @@ class CameraFragment : Fragment() {
             activity?.showToast("Cannot access the camera.")
             cameraActivity.finish()
         } catch (e: NullPointerException) {
+            activity?.showToast("Cannot access the camera.")
             // Currently an NPE is thrown when the Camera2API is used but not supported on the
             // device this code runs.
         } catch (e: InterruptedException) {
+            activity?.showToast("Cannot access the camera.")
             throw RuntimeException("Interrupted while trying to lock camera opening.")
         }
     }
@@ -344,10 +344,7 @@ class CameraFragment : Fragment() {
         try {
             setUpCaptureRequestBuilder(previewRequestBuilder)
             HandlerThread("CameraPreview").start()
-            cameraCaptureSession?.setRepeatingRequest(
-                previewRequestBuilder.build(),
-                null, backgroundHandler
-            )
+            cameraCaptureSession?.setRepeatingRequest(previewRequestBuilder.build(), null, backgroundHandler)
         } catch (e: CameraAccessException) {
             activity?.e(TAG, e.toString())
         }
@@ -377,8 +374,7 @@ class CameraFragment : Fragment() {
             val previewSurface = Surface(texture)
             previewRequestBuilder.addTarget(previewSurface)
 
-            cameraDevice?.createCaptureSession(
-                listOf(previewSurface),
+            cameraDevice?.createCaptureSession(listOf(previewSurface),
                 object : CameraCaptureSession.StateCallback() {
 
                     override fun onConfigured(session: CameraCaptureSession) {
@@ -513,11 +509,11 @@ class CameraFragment : Fragment() {
                 object : CameraCaptureSession.StateCallback() {
 
                     override fun onConfigured(captureSession: CameraCaptureSession) {
-                        cameraCaptureSession = cameraCaptureSession
+                        cameraCaptureSession = captureSession
                         updatePreview()
                         activity?.runOnUiThread {
                             videoButton.background =
-                                ContextCompat.getDrawable(context!!, R.drawable.ic_change_camera_black_36dp)
+                                ContextCompat.getDrawable(context!!, R.drawable.ic_take_recording_red_50dp)
                             isRecordingVideo = true
                             mediaRecorder?.start()
                         }
