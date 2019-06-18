@@ -36,47 +36,13 @@ import java.util.concurrent.TimeUnit
 
 class CameraFragment : Fragment() {
 
-    private val TAG = "Camera2VideoFragment"
-
-    /**
-     * Max preview width that is guaranteed by Camera2 API
-     */
-    private val MAX_PREVIEW_WIDTH = 1920
-
-    /**
-     * Max preview height that is guaranteed by Camera2 API
-     */
-    private val MAX_PREVIEW_HEIGHT = 1080
-
-    /**
-     * Camera state: Showing camera preview.
-     */
-    private val STATE_PREVIEW = 0
-
-    /**
-     * Camera state: Waiting for the focus to be locked.
-     */
-    private val STATE_WAITING_LOCK = 1
-
-    /**
-     * Camera state: Waiting for the exposure to be precapture state.
-     */
-    private val STATE_WAITING_PRECAPTURE = 2
-
-    /**
-     * Camera state: Waiting for the exposure state to be something other than precapture.
-     */
-    private val STATE_WAITING_NON_PRECAPTURE = 3
-
-    /**
-     * Camera state: Picture was taken.
-     */
-    private val STATE_PICTURE_TAKEN = 4
-
-
-    private lateinit var cameraId: String
+    private val TAG = "CameraFragment"
+    //textureView
     private lateinit var textureView: AutoFitTextureView
+
+    //videoButton
     private lateinit var videoButton: ImageButton
+    //switch Camera
     private lateinit var swtichCamera: ImageButton
 
     private var cameraCaptureSession: CameraCaptureSession? = null
@@ -88,7 +54,6 @@ class CameraFragment : Fragment() {
 
 
     private var imageReader: ImageReader? = null
-    private var state = STATE_PREVIEW
     private val cameraOpenCloseLock = Semaphore(1)
     private lateinit var previewRequest: CaptureRequest
     private lateinit var previewRequestBuilder: CaptureRequest.Builder
@@ -112,8 +77,6 @@ class CameraFragment : Fragment() {
      */
     private var isRecordingVideo = false
     private var mediaRecorder: MediaRecorder? = null
-
-
     private val SENSOR_ORIENTATION_DEFAULT_DEGREES = 90
     private val SENSOR_ORIENTATION_INVERSE_DEGREES = 270
     private val DEFAULT_ORIENTATIONS = SparseIntArray().apply {
@@ -128,6 +91,7 @@ class CameraFragment : Fragment() {
         append(Surface.ROTATION_180, 90)
         append(Surface.ROTATION_270, 0)
     }
+    private var isFront = false
 
 
     private val stateCallback = object : CameraDevice.StateCallback() {
@@ -178,6 +142,15 @@ class CameraFragment : Fragment() {
             if (isRecordingVideo) stopRecordingVideo() else startRecordingVideo()
         }
         swtichCamera = view.findViewById(R.id.swtichCamera)
+        swtichCamera.setOnClickListener {
+            isFront = !isFront
+            closeCamera()
+            if (textureView.isAvailable) {
+                openCamera(textureView.width, textureView.height)
+            } else {
+                textureView.surfaceTextureListener = surfaceTextureListener
+            }
+        }
     }
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
@@ -212,22 +185,12 @@ class CameraFragment : Fragment() {
             checkSelfPermission((activity as FragmentActivity), it) != PackageManager.PERMISSION_GRANTED
         }
 
-    /**
-     * Tries to open a [CameraDevice]. The result is listened by [stateCallback].
-     *
-     * Lint suppression - permission is checked in [hasPermissionsGranted]
-     */
     @SuppressLint("MissingPermission")
     private fun openCamera(width: Int, height: Int) {
         if (!hasPermissionsGranted(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))) {
             PermissionUtil.CameraPermissionCheck(context!!, object : PermissionListener {
-                override fun onPermissionGranted() {
-//                    openCamera(width, height)
-                }
-
-                override fun onPermissionDenied(deniedPermissions: ArrayList<String>?) {
-                    return
-                }
+                override fun onPermissionGranted() = openCamera(width, height)
+                override fun onPermissionDenied(deniedPermissions: ArrayList<String>?) {}
             })
             return
         }
@@ -239,18 +202,25 @@ class CameraFragment : Fragment() {
             if (!cameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
                 throw RuntimeException("Time out waiting to lock camera opening.")
             }
-            val cameraId = manager.cameraIdList[0]
+            var cameraId: String
+            if (isFront) {
+                //전면카메라
+                cameraId = manager.cameraIdList[1]
+            } else {
+                //후면카메라
+                cameraId = manager.cameraIdList[0]
+            }
 
             // Choose the sizes for camera preview and video recording
             val characteristics = manager.getCameraCharacteristics(cameraId)
             val map = characteristics.get(SCALER_STREAM_CONFIGURATION_MAP)
                 ?: throw RuntimeException("Cannot get available preview/video sizes")
+
+
+
             sensorOrientation = characteristics.get(SENSOR_ORIENTATION)
             videoSize = chooseVideoSize(map.getOutputSizes(MediaRecorder::class.java))
-            previewSize = chooseOptimalSize(
-                map.getOutputSizes(SurfaceTexture::class.java),
-                width, height, videoSize
-            )
+            previewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture::class.java), width, height, videoSize)
 
             if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
                 textureView.setAspectRatio(previewSize.width, previewSize.height)
@@ -374,7 +344,8 @@ class CameraFragment : Fragment() {
             val previewSurface = Surface(texture)
             previewRequestBuilder.addTarget(previewSurface)
 
-            cameraDevice?.createCaptureSession(listOf(previewSurface),
+            cameraDevice?.createCaptureSession(
+                listOf(previewSurface),
                 object : CameraCaptureSession.StateCallback() {
 
                     override fun onConfigured(session: CameraCaptureSession) {
@@ -512,8 +483,8 @@ class CameraFragment : Fragment() {
                         cameraCaptureSession = captureSession
                         updatePreview()
                         activity?.runOnUiThread {
-                            videoButton.background =
-                                ContextCompat.getDrawable(context!!, R.drawable.ic_take_recording_red_50dp)
+                            videoButton.setImageResource(R.drawable.ic_stop_black_24dp)
+                            swtichCamera.visibility = View.GONE
                             isRecordingVideo = true
                             mediaRecorder?.start()
                         }
@@ -535,7 +506,8 @@ class CameraFragment : Fragment() {
 
     private fun stopRecordingVideo() {
         isRecordingVideo = false
-        videoButton.background = ContextCompat.getDrawable(context!!, R.drawable.ic_take_record_black_50dp)
+        videoButton.setImageResource(R.drawable.ic_take_recording_red_50dp)
+        swtichCamera.visibility = View.VISIBLE
         mediaRecorder?.apply {
             stop()
             reset()
