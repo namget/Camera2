@@ -2,6 +2,7 @@ package com.namget.camera2
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -14,8 +15,6 @@ import androidx.core.content.FileProvider
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-
-
 
 
 class MainActivity : AppCompatActivity() {
@@ -41,7 +40,27 @@ class MainActivity : AppCompatActivity() {
             startActivityForResult(intent, CAMERA_REQ)
         }
 
+        cameraApp.setOnClickListener {
+            dispatchTakeVideoIntent()
+        }
+
     }
+
+
+    fun checkCameraApp() {
+        val pm: PackageManager = this.packageManager
+        val isCameraFeature = pm.hasSystemFeature(PackageManager.FEATURE_CAMERA)
+        Log.e("check", "$isCameraFeature")
+    }
+    val REQUEST_VIDEO_CAPTURE = 1
+    private fun dispatchTakeVideoIntent() {
+        Intent(MediaStore.ACTION_VIDEO_CAPTURE).also { takeVideoIntent ->
+            takeVideoIntent.resolveActivity(packageManager)?.also {
+                startActivityForResult(takeVideoIntent, REQUEST_VIDEO_CAPTURE)
+            }
+        }
+    }
+
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
 
